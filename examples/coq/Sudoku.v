@@ -5,6 +5,8 @@ Require Import Full.
 Require Import ListEx.
 Require Import Integer.
 Import IntegerNotations.
+Require Import EnsemblesEx.
+Import EnsembleNotations.
 Require Import EqDec.
 Require Import Space.Tactics.
 Require Vector.
@@ -286,4 +288,308 @@ Section Sudoku.
       (all_boards_more_solved_than b)
       (guard solved).
 
+  Definition index_rel {n} (i : Fin.t n) (i' : Int) : Prop :=
+    Integer.fromZ (Z.of_nat (S (proj1_sig (Fin.to_nat i)))) = i'.
+
+  Definition cell_rel {n} (c : CellFin.t n) (c' : cell) : Prop :=
+    match c, c' with
+    | None, None => True
+    | Some i, Some i' => index_rel i i'
+    | _, _ => False
+    end.
+
+  Definition section_rel n (v : Vector.t (CellFin.t n) n) (v' : Vector.t cell n) : Prop :=
+    Vector.Forall2 cell_rel v v'.
+
+  Definition board_rel {n} (b : Board.t (CellFin.t (n * n)) n) (b' : Board.t cell n) : Prop :=
+    Board.Forall2 cell_rel b b'.
+
+  Lemma mboard_fold_2d_inv :
+    forall n f P,
+      (forall r c b1 b2,
+          P b1 ->
+          b2 ∈ denote (f r c b1) ->
+          P b2) ->
+      forall b1 b2,
+        P b1 ->
+        b2 ∈ denote (mboard_fold_2d(n:=n) f b1) ->
+        P b2.
+  Admitted.
+
+  Lemma cell_less_solved_than_refl :
+    forall A (c : option A), cell_less_solved_than c c.
+  Proof.
+    unfold cell_less_solved_than.
+    destruct c; auto.
+  Qed.
+
+  Lemma board_less_solved_than_refl:
+    forall A n (b : Board.t (option A) n), board_less_solved_than b b.
+  Proof.
+    unfold board_less_solved_than, Board.Forall2.
+    auto using cell_less_solved_than_refl.
+  Qed.
+
+  Lemma board_less_solved_than_trans :
+    forall A n (b1 b2 b3 : Board.t (option A) n),
+      board_less_solved_than b1 b2 ->
+      board_less_solved_than b2 b3 ->
+      board_less_solved_than b1 b3.
+  Admitted.
+
+  Lemma board_less_solved_than_set :
+    forall A n (b : Board.t (option A) n) (c : option A) i j,
+      cell_less_solved_than (Board.get i j b) c ->
+      board_less_solved_than b (Board.set i j c b).
+  Admitted.
+
+  Lemma all_boards_more_solved_than_sound :
+    forall n b1 b2,
+      b2 ∈ denote (all_boards_more_solved_than(n:=n) b1) ->
+      board_less_solved_than b1 b2.
+  Proof.
+    unfold all_boards_more_solved_than.
+    intros n b1 b2.
+    apply mboard_fold_2d_inv.
+    - clear b2. intros r c b2 b3 Lt In.
+      break_match; space_crush.
+      eapply board_less_solved_than_trans; [eauto|].
+      apply board_less_solved_than_set.
+      rewrite Heqo.
+      exact I.
+    - auto using board_less_solved_than_refl.
+  Qed.
+
+  Definition cell_in_range (n : nat) (c : cell) : Prop :=
+    match c with
+    | None => True
+    | Some i => 0 <= ⟦ i ⟧ < Z.of_nat n
+    end.
+
+  Definition board_in_range {n} (b : Board.t cell n) :=
+    Board.Forall (cell_in_range (n * n)) b.
+
+  Lemma board_in_range_rel_surjective :
+    forall n b',
+      board_in_range(n:=n) b' ->
+      exists b, board_rel b b'.
+  Admitted.
+
+  Lemma forallb_cons :
+    forall A (p : A -> bool) n (h : A) (t : Vector.t A n),
+      VectorEx.forallb p (h :: t) =
+      p h && VectorEx.forallb p t.
+  Proof. reflexivity. Qed.
+
+  Lemma forallb_Forall :
+    forall A (p : A -> bool) n (v : Vector.t A n),
+      VectorEx.forallb p v = true ->
+      Vector.Forall (fun x => p x = true) v.
+  Proof.
+    induction v; simpl; intros.
+    - constructor.
+    - rewrite forallb_cons in H.
+      do_bool.
+      constructor; auto.
+  Qed.
+
+  Lemma Forall_case_cons :
+    forall A (P : A -> Prop) n (Q : A -> Vector.t A n -> Prop),
+      (forall h t, P h -> Vector.Forall P t -> Q h t) ->
+      forall h (t : Vector.t A n),
+        Vector.Forall P (h :: t) -> Q h t.
+  Proof.
+    intros A P n Q HQ h t H.
+    revert Q HQ.
+    refine match H in Vector.Forall _ v0 return match v0 return Prop with
+                                                | Vector.nil => True
+                                                | Vector.cons h0 t0 => forall (Q : _ -> _ -> Prop), _ -> Q h0 t0
+                                                end with
+           | Vector.Forall_nil _ => I
+           | Vector.Forall_cons _ _ _ _ _ => _
+           end.
+    intros.
+    auto.
+  Qed.
+
+  Lemma Forall_map :
+    forall A B (f : A -> B) (P : B -> Prop) n (v : Vector.t A n),
+      Vector.Forall P (Vector.map f v) ->
+      Vector.Forall (fun a => P (f a)) v.
+  Proof.
+    induction v; simpl; intros.
+    - constructor.
+    - remember (Vector.map f v) as y. revert Heqy.
+      remember (f h) as x. revert Heqx.
+      revert x y H IHv.
+      refine (@Forall_case_cons _ _ _ _ _); intros. subst.
+      constructor; auto.
+  Qed.
+
+  Lemma Forall_all_indices_forall :
+    forall n P,
+      Vector.Forall P (VectorEx.all_indices n) ->
+      forall x, P x.
+  Proof.
+    induction n; simpl; intros.
+    - destruct x using Fin.case0.
+    - remember Fin.F1 as h. revert Heqh.
+      remember (Vector.map _ _) as t. revert Heqt.
+      revert h t H.
+      refine (@Forall_case_cons _ _ _ _ _).
+      intros. subst.
+      destruct x using Fin.caseS'; auto.
+      + apply Forall_map in H0.
+        eapply IHn in H0.
+        eauto.
+  Qed.
+
+
+  Lemma vector_option_traverse_Some_Forall :
+    forall A P n (v : Vector.t (option A) n) v',
+      VectorEx.vector_option_traverse v = Some v' ->
+      Vector.Forall P v' ->
+      Vector.Forall (fun o => match o with
+                           | Some x => P x
+                           | None => False
+                           end) v.
+  Admitted.
+
+  Lemma Forall_implies :
+    forall A (P Q : A -> Prop) n v,
+      Vector.Forall(n:=n) P v ->
+      (forall a, P a -> Q a) ->
+      Vector.Forall Q v.
+  Proof.
+    induction 1; intros; constructor; auto.
+  Qed.
+
+  Lemma solved_section_row_board_in_range :
+    forall n v,
+      solved_section(n:=n) v = true ->
+      Vector.Forall (cell_in_range (n * n)) v.
+  Proof.
+    unfold solved_section.
+    intros n v H.
+    unfold VectorEx.filled_and in *.
+    break_match; try discriminate.
+    rewrite andb_true_iff in H.
+    destruct H as [_ H].
+    unfold vinrange in H.
+    apply forallb_Forall in H.
+    eapply vector_option_traverse_Some_Forall in H; eauto.
+    eapply Forall_implies; eauto.
+    simpl. intros.
+    break_match; try contradiction.
+    space_crush.
+    firstorder.
+  Qed.
+
+  Lemma solved_board_in_range :
+    forall n (b : Board.t cell n),
+      solved b = true ->
+      board_in_range b.
+  Proof.
+    intros n b H r c.
+    unfold solved in *.
+    apply forallb_Forall in H.
+    apply Forall_all_indices_forall with (x := r) in H .
+    rewrite !andb_true_iff in H.
+    destruct H as [[H _] _].
+    apply solved_section_row_board_in_range in H.
+    unfold Board.row in H.
+    apply Forall_map in H.
+    apply Forall_all_indices_forall with (x := c) in H.
+    auto.
+  Qed.
+
+  Lemma board_rel_row_rel :
+    forall n b b' r,
+      board_rel(n:=n) b b' ->
+      section_rel (Board.row r b) (Board.row r b').
+  Admitted.
+
+  Lemma board_rel_col_rel :
+    forall n b b' r,
+      board_rel(n:=n) b b' ->
+      section_rel (Board.col r b) (Board.col r b').
+  Admitted.
+
+  Lemma board_rel_box_rel :
+    forall n b b' r,
+      board_rel(n:=n) b b' ->
+      section_rel (Board.box r b) (Board.box r b').
+  Admitted.
+
+  Lemma Permutation_list :
+    forall A n (v1 v2 : Vector.t A n),
+      Permutation.Permutation (Vector.to_list v1) (Vector.to_list v2) ->
+      VectorEx.Permutation v1 v2.
+  Admitted.
+
+
+  Definition vCountUp (n : nat) (start : Int) : Vector.t Int n :=
+    VectorEx.tabulate (plus one) n start.
+
+  Lemma all_indices_index_rel :
+    forall n,
+      Vector.Forall2 index_rel (VectorEx.all_indices (n * n)) (vCountUp (n * n) one).
+  Admitted.
+
+  Lemma solved_section_sound :
+    forall n v v',
+      section_rel v v' ->
+      solved_section(n:=n) v' = true ->
+      SudokuSpec.solved_section v.
+  Proof.
+    unfold solved_section, VectorEx.filled_and, SudokuSpec.solved_section.
+    intros.
+    break_match; try discriminate.
+    do_bool.
+  Admitted.
+
+  Lemma solved_sound :
+    forall n b2 b2',
+      board_rel(n:=n) b2 b2' ->
+      solved b2' = true ->
+      SudokuSpec.solved b2.
+  Proof.
+    unfold solved, SudokuSpec.solved.
+    intros n b2 b2' Rel Solved i.
+    apply forallb_Forall in Solved.
+    apply Forall_all_indices_forall with (x := i) in Solved.
+    do_bool.
+    intuition eauto using solved_section_sound, board_rel_row_rel,
+                          board_rel_col_rel, board_rel_box_rel.
+  Qed.
+
+  Lemma board_less_solved_than_lift :
+    forall n b1 b2 b1' b2',
+      board_rel(n:=n) b1 b1' ->
+      board_rel(n:=n) b2 b2' ->
+      board_less_solved_than b1' b2' ->
+      board_less_solved_than b1 b2.
+  Admitted.
+
+  Lemma sudoku_space_sound :
+    forall n b1 b1',
+      board_rel(n:=n) b1 b1' ->
+      forall b2',
+        b2' ∈ denote (sudoku_space b1') ->
+        exists b2, board_rel b2 b2' /\
+              SudokuSpec.solution b1 b2.
+  Proof.
+    unfold sudoku_space.
+    intros.
+    space_crush.
+    break_if; space_crush.
+    pose proof (solved_board_in_range _ Heqb) as Range.
+    pose proof board_in_range_rel_surjective Range as Rel.
+    destruct Rel as [b2 Rel].
+    exists b2. split; auto.
+    red.
+    split.
+    - eauto using solved_sound.
+    - eauto using all_boards_more_solved_than_sound, board_less_solved_than_lift.
+  Qed.
 End Sudoku.
