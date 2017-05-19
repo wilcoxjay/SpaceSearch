@@ -90,6 +90,27 @@ Module VectorEx.
       | 0%nat => []
       | S n => acc :: rec n (f acc)
       end.
+
+  Fixpoint vector_option_traverse {A n} (v : Vector.t (option A) n) : option (Vector.t A n) :=
+    match v  with
+    | [] => Some []
+    | o :: v =>
+      match o with
+      | None => None
+      | Some x =>
+        match vector_option_traverse v with
+        | None => None
+        | Some v => Some (x :: v)
+        end
+      end
+    end.
+
+  Definition filled_and {A} (pred : forall {n}, Vector.t A n -> bool)
+             {m} (v : Vector.t (option A) m) : bool :=
+    match vector_option_traverse v with
+    | None => false
+    | Some v => pred v
+    end.
 End VectorEx.
 
 Module FinEx.
@@ -196,3 +217,73 @@ Module SudokuSpec.
   Definition solution {n} (b b' : Board.t (CellFin.t (n * n)) n) :=
     solved b' /\ board_less_solved_than b b'.
 End SudokuSpec.
+
+(* TODO: move this into library. *)
+Section SpaceEx.
+  Context {BAS:Basic}.
+  Context {SEA:@Search BAS}.
+  Context {INT:@Integer BAS}.
+
+  Definition guard {A} (p : A -> bool) (a : A) : Space A :=
+    if p a then single a else empty.
+
+  Lemma denoteGuardOk : forall A (p : A -> bool) (a : A),
+      denote (guard p a) = if p a then denote (single a) else denote empty.
+  Proof.
+    unfold guard.
+    intros.
+    break_if; auto.
+  Qed.
+End SpaceEx.
+(* Must go outside of section. Hints do not survive sections. *)
+Hint Rewrite @denoteGuardOk : space.
+
+Section Sudoku.
+  Context {BAS:Basic}.
+  Context {SEA:@Search BAS}.
+  Context {INT:@Integer BAS}.
+
+  Notation cell := (option Int).
+
+  Definition vdistinct {n} (v : Vector.t Int n) : bool :=
+    distinct (Vector.to_list v).
+
+  Definition vinrange {n} (v : Vector.t Int n) : bool :=
+    VectorEx.forallb (fun x => (zero <=? x) && (x <? Integer.fromZ (Z.of_nat n)))%int v.
+
+  Definition solved_section {n} (section : Vector.t cell (n * n)) : bool :=
+    VectorEx.filled_and (fun _ v => vdistinct v && vinrange v) section.
+
+  Definition solved {n} (b : Board.t cell n) : bool :=
+    VectorEx.forallb (fun i =>
+        solved_section (Board.row i b) &&
+        solved_section (Board.col i b) &&
+        solved_section (Board.box i b))
+      (VectorEx.all_indices _).
+
+  Definition mvfold_left {A B} (f : A -> B -> Space B) {n} (v : Vector.t A n) (b : B) : Space B :=
+    Vector.fold_left (fun b a => bind b (fun b => f a b)) (single b) v.
+
+  Definition mboard_fold_2d {n}
+             (f : Fin.t (n * n) -> Fin.t (n * n) -> Board.t cell n -> Space (Board.t cell n))
+             (b : Board.t cell n) : Space (Board.t cell n) :=
+    mvfold_left
+      (fun r b => mvfold_left (fun c b => f r c b) (VectorEx.all_indices _) b)
+      (VectorEx.all_indices _)
+      b.
+
+  Definition all_boards_more_solved_than {n} (b : Board.t cell n) : Space (Board.t cell n) :=
+    mboard_fold_2d
+      (fun r c b =>
+         match Board.get r c b with
+         | None => bind full (fun x : Int => single (Board.set r c (Some x) b))
+         | Some _ => single b
+         end)
+      b.
+
+  Definition sudoku_space {n} (b : Board.t cell n) : Space (Board.t cell n) :=
+    bind
+      (all_boards_more_solved_than b)
+      (guard solved).
+
+End Sudoku.
