@@ -516,6 +516,21 @@ Section Sudoku.
       Vector.Forall2 index_rel (VectorEx.all_indices (n * n)) (vCountUp (n * n) one).
   Admitted.
 
+  Lemma Permutation_lift :
+    forall n v1 v2 (v1' v2' : Vector.t cell (n * n)),
+      section_rel v1 v1' ->
+      section_rel v2 v2' ->
+      VectorEx.Permutation v1' v2' ->
+      VectorEx.Permutation v1 v2.
+  Proof.
+  Admitted.
+
+  Lemma Forall2_map :
+    forall A1 A2 B1 B2 P (f : A1 -> A2) (g : B1 -> B2) n va vb,
+      Vector.Forall2 (fun a b => P (f a) (g b)) va vb ->
+      Vector.Forall2(n:=n) P (Vector.map f va) (Vector.map g vb).
+  Admitted.
+
   Lemma solved_section_sound :
     forall n v v',
       section_rel v v' ->
@@ -526,6 +541,14 @@ Section Sudoku.
     intros.
     break_match; try discriminate.
     do_bool.
+    eapply Permutation_lift. eauto.
+    eauto using all_indices_index_rel.
+
+    red.
+    apply Forall2_map with (g := Some).
+    apply all_indices_index_rel.
+
+    apply Permutation_list.
   Admitted.
 
   Lemma solved_sound :
