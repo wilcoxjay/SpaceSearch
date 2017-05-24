@@ -121,6 +121,27 @@ Module hlist.
       | cons b h => cons (f b) (go h)
       end.
 
+  Lemma get_map : forall A (B C : A -> Type) (f : forall a, B a -> C a) l x (m: member.t x l) h,
+      get (map f h) m =
+      f _ (get h m).
+  Proof.
+    intros A B C f l x m h.
+    revert m.
+    induction h; simpl; intros.
+    - destruct m using member.case_nil.
+    - destruct a, l, m using member.case_cons; simpl; auto.
+  Qed.
+
+  Lemma map_map : forall A (B C D : A -> Type)
+                    (f : forall a, B a -> C a) (g : forall a, C a -> D a)
+                    l (h : t B l),
+      map g (map f h) = map (fun _ y => g _ (f _ y)) h.
+  Proof.
+    induction h; simpl; intros.
+    - auto.
+    - f_equal. auto.
+  Qed.
+
   Fixpoint identity A (l : list A) : t (fun x => member.t x l) l :=
     match l as l0 return t (fun x => member.t _ l0) l0 with
     | [] => nil
@@ -188,6 +209,42 @@ Module exp.
   | Op : forall l ty, op.t l ty -> hlist.t (t G) l -> t G ty
   .
 
+  Section rect.
+    Variable G : list ty.t.
+    Variable P : forall ty : ty.t, t G ty -> Type.
+    Variable Ph : forall l, hlist.t (t G) l -> Type.
+
+    Hypothesis HVar : forall ty (m : member.t ty G), P (Var m).
+    Hypothesis HOp : forall l ty (o : op.t l ty) (h : hlist.t (t G) l), Ph h -> P (Op o h).
+
+    Hypothesis Hnil : Ph hlist.nil.
+    Hypothesis Hcons : forall ty l (e : t G ty) (h : hlist.t (t G) l),
+        P e -> Ph h -> Ph (hlist.cons e h).
+
+    Fixpoint rect ty (e : t G ty) : P e :=
+      let fix go_hlist {l} (h : hlist.t (t G) l) : Ph h :=
+          match h with
+          | hlist.nil => Hnil
+          | hlist.cons e h => Hcons (rect e) (go_hlist h)
+          end
+      in match e with
+         | Var m => HVar m
+         | Op o h => HOp o (go_hlist h)
+         end.
+
+    Definition rect_hlist :=
+      fix go_hlist {l} (h : hlist.t (t G) l) : Ph h :=
+        match h with
+        | hlist.nil => Hnil
+        | hlist.cons e h => Hcons (rect e) (go_hlist h)
+        end.
+
+    Definition rect_and :
+      (forall ty (e : t G ty), P e) *
+      (forall l (h : hlist.t (t G) l), Ph h) :=
+      (@rect, @rect_hlist).
+  End rect.
+
   Definition lift0 {ty G} (op : op.t [] ty) : t G _ :=
     Op op hlist.nil.
 
@@ -237,11 +294,26 @@ Module exp.
   Admitted.
 
   Lemma denote_ty_denote_map :
-    forall G I1 I2 (f : I1 -> I2) E o1 o2 ty (e : exp.t G ty),
-      (* Hypothesis about o1 o2 -> *)
-      exp.denote (hlist.map (fun _ x => ty.denote_map f x) E) o1 e =
-      ty.denote_map f (exp.denote E o2 e).
-  Admitted.
+    forall G I1 I2 (f : I1 -> I2) E
+      (o1 : forall l ty, op.t l ty -> hlist.t (ty.denote I1) l -> ty.denote I1 ty)
+      (o2 : forall l ty, op.t l ty -> hlist.t (ty.denote I2) l -> ty.denote I2 ty),
+      (forall l ty (o : op.t l ty) (h : hlist.t (ty.denote I1) l),
+          ty.denote_map f (o1 l ty o h) =
+          o2 l ty o (hlist.map (fun _ e => ty.denote_map f e) h)) ->
+      forall ty (e : exp.t G ty),
+        exp.denote (hlist.map (fun _ x => ty.denote_map f x) E) o2 e =
+        ty.denote_map f (exp.denote E o1 e).
+  Proof.
+    intros G I1 I2 f E o1 o2 H ty e.
+    induction ty, e using rect
+    with (Ph := fun l h =>
+      hlist.map (@exp.denote _ _ (hlist.map (fun _ x => ty.denote_map f x) E) o2) h =
+      hlist.map (fun _ e => ty.denote_map f (exp.denote E o1 e)) h); simpl.
+    - apply hlist.get_map.
+    - now rewrite IHe, H, hlist.map_map.
+    - auto.
+    - f_equal; auto.
+  Qed.
 
   Definition Z_denote {G ty} (env : hlist.t (ty.denote Z) G) (e : t G ty) : ty.denote Z ty :=
     denote env (@op.Z_denote) e.
@@ -253,6 +325,23 @@ Module exp.
     Definition int_denote {G ty} (env : hlist.t (ty.denote Int) G) (e : t G ty)
       : ty.denote Int ty :=
       denote env (@op.int_denote _ _) e.
+
+    Lemma int_denote_Z_denote :
+      forall G E ty (e : exp.t G ty),
+        int_denote (hlist.map (fun _ x => ty.denote_map fromZ x) E) e =
+        ty.denote_map fromZ (Z_denote E e).
+    Proof.
+      intros.
+      apply denote_ty_denote_map.
+      destruct o; intros;
+        repeat match goal with
+               | [ H : hlist.t _ [] |- _ ] => destruct H using hlist.case_nil
+               | [ H : hlist.t _ (_ :: _) |- _ ] => destruct H using hlist.case_cons
+               end; simpl; auto.
+      - apply denoteInjective. space_crush.
+      - destruct ty0; simpl; space_crush.
+      - space_crush.
+    Qed.
   End int.
 End exp.
 
@@ -568,15 +657,10 @@ Section space.
       destruct (H E0') as [VC0 WP0].
       unfold pred.
       subst E0'.
-      unfold exp.int_denote in VC0.
-      unfold exp.Z_denote.
-      rewrite exp.denote_ty_denote_map with (o2 := @op.Z_denote) in VC0.
+      rewrite exp.int_denote_Z_denote in VC0.
       auto.
     - subst E'.
-      unfold exp.int_denote in WP.
-      unfold exp.Z_denote.
-      rewrite exp.denote_ty_denote_map with (o2 := @op.Z_denote) in WP.
-      auto.
+      rewrite exp.int_denote_Z_denote in WP.
       simpl in WP.
       rewrite implb_true_iff in *.
       intuition.
