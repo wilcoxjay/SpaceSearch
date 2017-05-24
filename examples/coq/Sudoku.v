@@ -389,7 +389,7 @@ Section Sudoku.
     induction v; simpl; intros.
     - constructor.
     - rewrite forallb_cons in H.
-      do_bool.
+      do_bool. intuition.
       constructor; auto.
   Qed.
 
