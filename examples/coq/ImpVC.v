@@ -21,7 +21,7 @@ Set Maximal Implicit Insertion.
    - syntax of commands (module `cmd`) and small-step operational semantics over Z (module `step`)
    - definition of the Hoare triple for partial correctness (module `hoare`)
    - a VC generator (functions `wp` and `vc`)
-   - a SpaceSearch Space for counterexamples to VCs with admitted soundness theorem (`hoare_space`)
+   - a SpaceSearch Space for counterexamples to VCs with soundness theorem (`hoare_space`)
 *)
 
 (* TODO:
@@ -527,13 +527,6 @@ Fixpoint vc {G} (c : cmd.t G) (Q : exp.t G ty.Bool) : exp.t G ty.Bool :=
             (exp.Implies (exp.And Inv (exp.Not b)) Q))
   end.
 
-Lemma implb_true_iff : forall b1 b2,
-      implb b1 b2 = true <->
-      (b1 = true -> b2 =true).
-Proof.
-  destruct b1, b2; simpl; intuition congruence.
-Qed.
-
 Lemma vc_wp_sound :
   forall G (c : cmd.t G)E (Q : exp.t G ty.Bool),
     (forall E, pred (vc c Q) E) ->
@@ -554,24 +547,23 @@ Proof.
     + intros E0.
       specialize (VC E0).
       unfold pred in *.
-      simpl in *. do_bool. auto.
+      simpl in *. do_bool. intuition.
     + intros E0 WP2.
       apply IHc2; auto.
       intros E1.
       specialize (VC E1).
       unfold pred in *.
-      simpl in *. do_bool. auto.
+      simpl in *. do_bool. intuition.
   - do_bool.
-    rewrite implb_true_iff in *.
-    rewrite negb_true_iff in *.
+    intuition.
     apply hoare.If.
     break_if.
     + apply IHc1; auto.
       intros E0. specialize (VC E0). unfold pred in *. simpl in VC.
-      do_bool. auto.
+      do_bool. intuition.
     + apply IHc2; auto.
       intros E0. specialize (VC E0). unfold pred in *. simpl in VC.
-      do_bool. auto.
+      do_bool. intuition.
   - eapply hoare.consequence.
     apply hoare.While; auto.
     + intros E0 He P.
@@ -581,21 +573,18 @@ Proof.
         unfold pred in *.
         simpl in *.
         do_bool.
-        rewrite implb_true_iff, andb_true_iff, negb_true_iff in *.
-        auto.
+        intuition.
       * pose proof (VC E0).
         unfold pred in *.
         simpl in *.
         do_bool.
-        rewrite implb_true_iff, andb_true_iff, negb_true_iff in *.
-        auto.
+        intuition.
     + simpl.
       intros E0 He.
       pose proof (VC E0).
       unfold pred in *.
       simpl in *.
       do_bool.
-      rewrite implb_true_iff, andb_true_iff, negb_true_iff in *.
       intuition.
 Qed.
 
@@ -709,11 +698,10 @@ Section space.
       apply not_and_or in H.
       destruct H.
       - contradiction H. constructor.
-      - break_if.
+      - simpl. break_if.
         + do_bool. contradiction H. constructor.
-        + rewrite negb_false_iff in Heqb.
-          do_bool.
-          auto.
+        + do_bool.
+          intuition.
     }
     clear H. rename H0 into H.
     intros E HP.
