@@ -734,3 +734,44 @@ Section space.
 
   (* Not sure about completeness. *)
 End space.
+
+Section search.
+  Context {BAS:Basic}.
+  Context {INT:@Integer BAS}.
+  Context {SEA:@Search BAS}.
+
+  Definition prove {G} P (c : cmd.t G) Q : Result (hlist.t (ty.denote Int) G) :=
+    search (hoare_space P c Q).
+End search.
+
+Require Import Rosette.Quantified.
+
+Definition impVCRosette {G} := prove(G:=G).
+
+Extraction Language Scheme.
+
+(*
+(define S0
+  (WHILE (< x n) {<= x n}
+    (:= x (+ x 1))))
+
+(define P0 (<= x n))
+(define Q0 (>= x n))
+*)
+
+Notation X := (exp.Var member.Here).
+Notation N := (exp.Var (member.There member.Here)).
+
+Definition env0 := [ty.Int; ty.Int].
+Definition S0 : cmd.t env0 :=
+  cmd.While (exp.Lt X N) (exp.Le X N)
+    (cmd.Assign member.Here (exp.Plus X (exp.ZConst 1))).
+
+Definition P0 : exp.t env0 ty.Bool :=
+  exp.Le X N.
+
+Definition Q0 : exp.t env0 ty.Bool :=
+  exp.Le N X.
+
+Extraction "impvc" impVCRosette env0 S0 P0 Q0.
+

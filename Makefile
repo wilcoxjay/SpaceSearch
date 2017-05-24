@@ -35,6 +35,10 @@ examples: build
 	cp $(EXA_RKT)/header.rkt primes-naive.rkt
 	tail -n +4 $(EXA_COQ)/primes-naive.scm >> primes-naive.rkt
 	cat $(EXA_RKT)/primes-naive.rkt >> primes-naive.rkt
+	# impVC
+	cp $(EXA_RKT)/header.rkt impvc.rkt
+	tail -n +4 $(EXA_COQ)/impvc.scm >> impvc.rkt
+	cat $(EXA_RKT)/impvc.rkt >> impvc.rkt
 
 	cp $(EXA_RKT)/header.rkt primes-incremental.rkt
 	tail -n +4 $(EXA_COQ)/primes-incremental.scm >> primes-incremental.rkt
