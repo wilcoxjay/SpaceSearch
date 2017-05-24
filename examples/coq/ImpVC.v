@@ -10,6 +10,7 @@ Import EnsembleNotations.
 Require Import EqDec.
 Require Import Space.Tactics.
 Require Import Program.
+Require Import Classical.
 
 Set Implicit Arguments.
 Set Maximal Implicit Insertion.
@@ -25,7 +26,7 @@ Set Maximal Implicit Insertion.
 *)
 
 (* TODO:
-   - cleanup soundness proof
+   - cleanup vc_wp_sound
    - extract and try it!
    - integrate with street fighting Imp material
 *)
@@ -392,6 +393,16 @@ Module exp.
       - destruct ty0; simpl; space_crush.
       - space_crush.
     Qed.
+
+    Lemma int_denote_Z_denote_bool :
+      forall G E (e : exp.t G ty.Bool),
+        int_denote (hlist.map (fun _ x => ty.denote_map fromZ x) E) e =
+        Z_denote E e.
+    Proof.
+      intros.
+      rewrite int_denote_Z_denote.
+      auto.
+    Qed.
   End int.
 End exp.
 
@@ -655,7 +666,35 @@ Section space.
   Definition hoare_space {G} P (c : cmd.t G) Q : Space (hlist.t (ty.denote Int) G) :=
     bind full (guard (fun env => negb (exp.int_denote env (spec_exp P c Q)))).
 
-  Require Import Classical.
+
+  Theorem hoare_space_vc_wp :
+    forall G P (c : cmd.t G) Q,
+      (forall E, E ∈ ⟦ hoare_space P c Q ⟧ -> False) ->
+      forall E, exp.Z_denote E (vc c Q) = true /\
+           exp.Z_denote E (exp.Implies P (wp c Q)) = true.
+  Proof.
+    intros G P c Q H E.
+    set (E' := (hlist.map (fun _ x => ty.denote_map fromZ x) E)).
+    specialize (H E').
+
+    unfold hoare_space in *.
+    space_crush.
+    simpl in H.
+
+    pose proof (not_ex_all_not _ _ H). clear H. rename H0 into H.
+    specialize (H E').
+    simpl in H.
+    space_crush.
+    apply not_and_or in H.
+    destruct H.
+    - contradiction H. constructor.
+    - simpl. break_if.
+      + do_bool. contradiction H. constructor.
+      + do_bool.
+        subst E'.
+        rewrite !exp.int_denote_Z_denote in Heqb.
+        intuition.
+  Qed.
 
   Theorem hoare_space_sound :
     forall G P (c : cmd.t G) Q,
@@ -664,43 +703,16 @@ Section space.
   Proof.
     unfold hoare_space.
     intros G P c Q H.
-    assert (forall E, exp.int_denote E (vc c Q) = true /\
-                 exp.int_denote E (exp.Implies P (wp c Q)) = true).
-    { intros E.
-      specialize (H E).
-      space_crush.
-      simpl in H.
+    pose proof (hoare_space_vc_wp _ _ _ H) as VCWP. clear H.
 
-      pose proof (not_ex_all_not _ _ H). clear H. rename H0 into H.
-      specialize (H E).
-      simpl in H.
-      space_crush.
-      apply not_and_or in H.
-      destruct H.
-      - contradiction H. constructor.
-      - simpl. break_if.
-        + do_bool. contradiction H. constructor.
-        + do_bool.
-          intuition.
-    }
-    clear H. rename H0 into H.
     intros E HP.
-    set (E' := hlist.map (fun _ x => ty.denote_map fromZ x) E).
-    destruct (H E') as [VC WP].
+    destruct (VCWP E) as [VC WP].
 
     apply vc_wp_sound.
     - intros E0.
-      set (E0' := hlist.map (fun _ x => ty.denote_map fromZ x) E0).
-      destruct (H E0') as [VC0 WP0].
-      unfold pred.
-      subst E0'.
-      rewrite exp.int_denote_Z_denote in VC0.
+      destruct (VCWP E0) as [VC0 WP0].
       auto.
-    - subst E'.
-      rewrite exp.int_denote_Z_denote in WP.
-      simpl in WP.
-      rewrite implb_true_iff in *.
-      intuition.
+    - simpl in WP. do_bool. auto.
   Qed.
 
   (* Not sure about completeness. *)
