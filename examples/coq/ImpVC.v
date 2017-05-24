@@ -132,6 +132,15 @@ Module hlist.
     - destruct a, l, m using member.case_cons; simpl; auto.
   Qed.
 
+  Lemma map_set : forall A (B C : A -> Type) (f : forall a, B a -> C a)
+                    l x (m : member.t x l) (y : B x) (h : t B l),
+      map f (set m y h) = set m (f _ y) (map f h).
+  Proof.
+    induction h; simpl.
+    - destruct m using member.case_nil.
+    - destruct a, l, m using member.case_cons; simpl; f_equal; auto.
+  Qed.
+
   Lemma map_map : forall A (B C D : A -> Type)
                     (f : forall a, B a -> C a) (g : forall a, C a -> D a)
                     l (h : t B l),
@@ -142,11 +151,28 @@ Module hlist.
     - f_equal. auto.
   Qed.
 
+  Lemma map_ext : forall A (B C : A -> Type) (f g : forall a, B a -> C a),
+      (forall a (b : B a), f a b = g a b) ->
+      forall l (h : hlist.t B l),
+        map f h = map g h.
+  Proof.
+    induction h; simpl; f_equal; auto.
+  Qed.
+
   Fixpoint identity A (l : list A) : t (fun x => member.t x l) l :=
     match l as l0 return t (fun x => member.t _ l0) l0 with
     | [] => nil
     | x :: l => cons member.Here (map (fun y m => member.There m) (identity l))
     end.
+
+  Lemma map_get_identity :
+    forall A (B : A -> Type) l (h : hlist.t B l),
+      map (fun _ x => get h x) (identity l) = h.
+  Proof.
+    induction h; simpl.
+    - auto.
+    - rewrite map_map. simpl. f_equal; auto.
+  Qed.
 End hlist.
 
 Module op.
@@ -285,13 +311,36 @@ Module exp.
        | Op o h => op_denote _ _ o (hlist.map go h)
        end.
 
+  Lemma denote_subst' :
+    forall G I (env : hlist.t (ty.denote I) G) op_denote env' ty (e : exp.t G ty),
+      denote env op_denote (subst' env' e) =
+      denote (hlist.map (fun _ x => denote env op_denote x) env') op_denote e.
+  Proof.
+    intros G I env op_denote env' ty e.
+    induction ty, e using rect
+    with (Ph := fun l h =>
+      hlist.map (fun _ x => denote env op_denote x)
+                (hlist.map (fun _ x => subst' env' x) h) =
+      hlist.map (fun _ x =>
+        denote (hlist.map (fun _ x => denote env op_denote x) env') op_denote x) h); simpl.
+    - now rewrite hlist.get_map.
+    - f_equal. auto.
+    - auto.
+    - f_equal; auto.
+  Qed.
+
   Lemma denote_subst_set :
-    forall I op_denote G (env : hlist.t (ty.denote I) G) ty ty'
-      (e : exp.t G ty) (from : member.t ty' G) to,
-      (* Hypothesis about op_denote -> *)
+    forall I op_denote G (env : hlist.t (ty.denote I) G) ty
+      (e : exp.t G ty) ty' (from : member.t ty' G) to,
       exp.denote env op_denote (exp.subst e from to) =
       exp.denote (hlist.set from (exp.denote env op_denote to) env) op_denote e.
-  Admitted.
+  Proof.
+    intros.
+    unfold subst.
+    rewrite denote_subst', hlist.map_set, hlist.map_map.
+    rewrite hlist.map_ext with (g := fun _ x => hlist.get env x) by auto.
+    now rewrite hlist.map_get_identity.
+  Qed.
 
   Lemma denote_ty_denote_map :
     forall G I1 I2 (f : I1 -> I2) E
