@@ -588,26 +588,6 @@ Proof.
       intuition.
 Qed.
 
-
-Section SpaceEx.
-  Context {BAS:Basic}.
-  Context {SEA:@Search BAS}.
-  Context {INT:@Integer BAS}.
-
-  Definition guard {A} (p : A -> bool) (a : A) : Space A :=
-    if p a then single a else empty.
-
-  Lemma denoteGuardOk : forall A (p : A -> bool) (a : A),
-      denote (guard p a) = if p a then denote (single a) else denote empty.
-  Proof.
-    unfold guard.
-    intros.
-    break_if; auto.
-  Qed.
-End SpaceEx.
-(* Must go outside of section. Hints do not survive sections. *)
-Hint Rewrite @denoteGuardOk : space.
-
 Section full_hlist.
   Context {BAS:Basic}.
   Variable (A : Type) (B : A -> Type).
