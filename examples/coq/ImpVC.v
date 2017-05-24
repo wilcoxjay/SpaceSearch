@@ -9,6 +9,7 @@ Require Import EnsemblesEx.
 Import EnsembleNotations.
 Require Import EqDec.
 Require Import Space.Tactics.
+Require Import Program.
 
 Set Implicit Arguments.
 Set Maximal Implicit Insertion.
@@ -24,7 +25,7 @@ Set Maximal Implicit Insertion.
 *)
 
 (* TODO:
-   - kill admits in proof of soundness
+   - prove hoare.While by switching to big-step semantics.
    - extract and try it!
    - integrate with street fighting Imp material
 *)
@@ -432,13 +433,36 @@ Module step.
         t E1 c1 E3 c3
     .
 
+    Lemma Skip :
+      forall G E E',
+        t(G:=G) E cmd.Skip E' cmd.Skip ->
+        E = E'.
+    Proof.
+      intros.
+      invc H; auto.
+      invc H0.
+    Qed.
+
     Lemma seq_split :
       forall G E c1 c2 E',
         step.star.t(G:=G) E (cmd.Seq c1 c2) E' cmd.Skip ->
         exists E0,
           step.star.t E c1 E0 cmd.Skip /\
           step.star.t E0 c2 E' cmd.Skip.
-    Admitted.
+    Proof.
+      intros.
+      remember cmd.Skip as c' in H.
+      remember (cmd.Seq c1 c2) as c.
+      revert c1 c2 Heqc Heqc'.
+      induction H; intros; subst.
+      - discriminate.
+      - invc H.
+        + specialize (IHt _ _ eq_refl eq_refl).
+          destruct IHt as (E0 & H1 & H2).
+          exists E0. split; auto.
+          econstructor; eauto.
+        + exists E2. split; auto; constructor; auto.
+    Qed.
   End star.
 End step.
 
@@ -448,34 +472,59 @@ Module hoare.
   Definition t {G} (E : hlist.t (ty.denote Z) G) (c : cmd.t G) (Q : hlist.t (ty.denote Z) G -> Prop) : Prop :=
     forall E',
       step.star.t E c E' cmd.Skip ->
-      Q E.
+      Q E'.
 
   Lemma consequence : forall G E (Q Q' : _ -> Prop) c,
       hoare.t(G:=G) E c Q' ->
       (forall E, Q' E -> Q E) ->
       hoare.t(G:=G) E c Q.
-  Admitted.
+  Proof.
+    firstorder.
+  Qed.
 
   Lemma Skip : forall G (P : _ -> Prop) E,
       P E ->
       hoare.t(G:=G) E cmd.Skip P.
-  Admitted.
+  Proof.
+    unfold hoare.t.
+    intros.
+    apply step.star.Skip in H0.
+    subst. auto.
+  Qed.
 
   Lemma Assign :
     forall G E (Q : hlist.t (ty.denote Z) G -> Prop) ty (m : member.t ty G) e,
       Q (hlist.set m (exp.Z_denote E e) E) ->
       hoare.t E (cmd.Assign m e) Q.
-  Admitted.
+  Proof.
+    unfold hoare.t.
+    intros.
+    invc H0.
+    dependent destruction H1.
+    apply step.star.Skip in H2. subst. auto.
+  Qed.
 
   Lemma Seq : forall G (E : hlist.t (ty.denote Z) G) c1 c2 Q,
       hoare.t E c1 (fun E' => hoare.t E' c2 Q) ->
       hoare.t E (cmd.Seq c1 c2) Q.
-  Admitted.
+  Proof.
+    unfold hoare.t.
+    intros.
+    apply step.star.seq_split in H0.
+    destruct H0 as (E0 & Star1 & Star2).
+    eauto.
+  Qed.
 
   Lemma If : forall G (E : hlist.t (ty.denote Z) G) (e : exp.t G ty.Bool) c1 c2 Q,
       (if exp.Z_denote E e then hoare.t E c1 Q else hoare.t E c2 Q) ->
       hoare.t E (cmd.If e c1 c2) Q.
-  Admitted.
+  Proof.
+    unfold hoare.t.
+    intros.
+    invc H0.
+    invc H1.
+    break_if; auto.
+  Qed.
 
   Lemma While : forall G E e (Inv : exp.t G ty.Bool) c,
       pred Inv E ->
