@@ -16,15 +16,15 @@ Set Maximal Implicit Insertion.
 (* An automatic Hoare-style program verifier for Imp. *)
 
 (* Outline of this file:
-   - [module exp] syntax of expressions and denotational semantics to both Z and Int
-   - [module cmd] syntax of commands and [Module step] small-step operational semantics over Z
-   - [module hoare] definition of the Hoare triple for partial correctness
-   - [functions wp and vc] a VC generator
-   - [hoare_space] a SpaceSearch Space for counterexamples to VCs with admitted soundness theorem
+   - syntax of expressions and denotational semantics to both Z and Int (module `exp`)
+   - syntax of commands (module `cmd`) and small-step operational semantics over Z (module `step`)
+   - definition of the Hoare triple for partial correctness (module `hoare`)
+   - a VC generator (functions `wp` and `vc`)
+   - a SpaceSearch Space for counterexamples to VCs with admitted soundness theorem (`hoare_space`)
 *)
 
 (* TODO:
-   - connect the VC to the Coq-level Hoare triple to prove soundness
+   - kill admits in proof of soundness
    - extract and try it!
    - integrate with street fighting Imp material
 *)
@@ -39,6 +39,12 @@ Module ty.
     match ty with
     | Int => I
     | Bool => bool
+    end.
+
+  Definition denote_map {I1 I2} (f : I1 -> I2) {ty} : ty.denote I1 ty ->  ty.denote I2 ty :=
+    match ty with
+    | Int => f
+    | Bool => fun x => x
     end.
 End ty.
 
@@ -222,6 +228,21 @@ Module exp.
        | Op o h => op_denote _ _ o (hlist.map go h)
        end.
 
+  Lemma denote_subst_set :
+    forall I op_denote G (env : hlist.t (ty.denote I) G) ty ty'
+      (e : exp.t G ty) (from : member.t ty' G) to,
+      (* Hypothesis about op_denote -> *)
+      exp.denote env op_denote (exp.subst e from to) =
+      exp.denote (hlist.set from (exp.denote env op_denote to) env) op_denote e.
+  Admitted.
+
+  Lemma denote_ty_denote_map :
+    forall G I1 I2 (f : I1 -> I2) E o1 o2 ty (e : exp.t G ty),
+      (* Hypothesis about o1 o2 -> *)
+      exp.denote (hlist.map (fun _ x => ty.denote_map f x) E) o1 e =
+      ty.denote_map f (exp.denote E o2 e).
+  Admitted.
+
   Definition Z_denote {G ty} (env : hlist.t (ty.denote Z) G) (e : t G ty) : ty.denote Z ty :=
     denote env (@op.Z_denote) e.
 
@@ -238,10 +259,10 @@ End exp.
 Module cmd.
   Inductive t (G : list ty.t) :=
   | Skip
-  | Assign : forall ty, member.t ty G -> exp.t G ty -> t G
-  | Seq : t G -> t G -> t G
-  | If : exp.t G ty.Bool -> t G -> t G -> t G
-  | While : exp.t G ty.Bool -> exp.t G ty.Bool -> t G -> t G
+  | Assign ty (m : member.t ty G) (e : exp.t G ty)
+  | Seq (c1 c2 : t G)
+  | If (e : exp.t G ty.Bool) (c1 c2 : t G)
+  | While (e : exp.t G ty.Bool) (Inv : exp.t G ty.Bool) (c : t G)
   .
   Arguments Skip {_}.
 End cmd.
@@ -272,15 +293,57 @@ Module step.
         t E2 c2 E3 c3 ->
         t E1 c1 E3 c3
     .
+
+    Lemma seq_split :
+      forall G E c1 c2 E',
+        step.star.t(G:=G) E (cmd.Seq c1 c2) E' cmd.Skip ->
+        exists E0,
+          step.star.t E c1 E0 cmd.Skip /\
+          step.star.t E0 c2 E' cmd.Skip.
+    Admitted.
   End star.
 End step.
 
+Definition pred {G} (P : exp.t G ty.Bool) := (fun E => exp.Z_denote E P = true).
+
 Module hoare.
-  Definition t {G} (P : exp.t G ty.Bool) (c : cmd.t G) (Q : exp.t G ty.Bool) : Prop :=
-    forall E E',
-      exp.Z_denote E P = true ->
+  Definition t {G} (E : hlist.t (ty.denote Z) G) (c : cmd.t G) (Q : hlist.t (ty.denote Z) G -> Prop) : Prop :=
+    forall E',
       step.star.t E c E' cmd.Skip ->
-      exp.Z_denote E Q = true.
+      Q E.
+
+  Lemma consequence : forall G E (Q Q' : _ -> Prop) c,
+      hoare.t(G:=G) E c Q' ->
+      (forall E, Q' E -> Q E) ->
+      hoare.t(G:=G) E c Q.
+  Admitted.
+
+  Lemma Skip : forall G (P : _ -> Prop) E,
+      P E ->
+      hoare.t(G:=G) E cmd.Skip P.
+  Admitted.
+
+  Lemma Assign :
+    forall G E (Q : hlist.t (ty.denote Z) G -> Prop) ty (m : member.t ty G) e,
+      Q (hlist.set m (exp.Z_denote E e) E) ->
+      hoare.t E (cmd.Assign m e) Q.
+  Admitted.
+
+  Lemma Seq : forall G (E : hlist.t (ty.denote Z) G) c1 c2 Q,
+      hoare.t E c1 (fun E' => hoare.t E' c2 Q) ->
+      hoare.t E (cmd.Seq c1 c2) Q.
+  Admitted.
+
+  Lemma If : forall G (E : hlist.t (ty.denote Z) G) (e : exp.t G ty.Bool) c1 c2 Q,
+      (if exp.Z_denote E e then hoare.t E c1 Q else hoare.t E c2 Q) ->
+      hoare.t E (cmd.If e c1 c2) Q.
+  Admitted.
+
+  Lemma While : forall G E e (Inv : exp.t G ty.Bool) c,
+      pred Inv E ->
+      (forall E0, pred e E0 -> pred Inv E0 -> hoare.t E0 c (pred Inv)) ->
+      hoare.t(G:=G) E (cmd.While e Inv c) (fun E => pred (exp.Not e) E /\ pred Inv E).
+  Admitted.
 End hoare.
 
 (* See https://courses.cs.washington.edu/courses/cse507/17wi/lectures/vcg.rkt *)
@@ -306,9 +369,78 @@ Fixpoint vc {G} (c : cmd.t G) (Q : exp.t G ty.Bool) : exp.t G ty.Bool :=
             (exp.Implies (exp.And Inv (exp.Not b)) Q))
   end.
 
-Definition spec_exp {G} P c Q : exp.t G ty.Bool :=
-  exp.And (vc c Q)
-          (exp.Implies P (wp c Q)).
+Lemma implb_true_iff : forall b1 b2,
+      implb b1 b2 = true <->
+      (b1 = true -> b2 =true).
+Proof.
+  destruct b1, b2; simpl; intuition congruence.
+Qed.
+
+Lemma vc_wp_sound :
+  forall G (c : cmd.t G)E (Q : exp.t G ty.Bool),
+    (forall E, pred (vc c Q) E) ->
+    exp.Z_denote E (wp c Q) = true ->
+    hoare.t E c (pred Q).
+Proof.
+  induction c; simpl; intros E Q VC WP.
+  - apply hoare.Skip.
+    auto.
+  - apply hoare.Assign.
+    unfold pred, exp.Z_denote in *.
+    simpl in *.
+    rewrite <- exp.denote_subst_set.
+    auto.
+  - apply hoare.Seq.
+    eapply hoare.consequence.
+    apply IHc1; eauto.
+    + intros E0.
+      specialize (VC E0).
+      unfold pred in *.
+      simpl in *. do_bool. auto.
+    + intros E0 WP2.
+      apply IHc2; auto.
+      intros E1.
+      specialize (VC E1).
+      unfold pred in *.
+      simpl in *. do_bool. auto.
+  - do_bool.
+    rewrite implb_true_iff in *.
+    rewrite negb_true_iff in *.
+    apply hoare.If.
+    break_if.
+    + apply IHc1; auto.
+      intros E0. specialize (VC E0). unfold pred in *. simpl in VC.
+      do_bool. auto.
+    + apply IHc2; auto.
+      intros E0. specialize (VC E0). unfold pred in *. simpl in VC.
+      do_bool. auto.
+  - eapply hoare.consequence.
+    apply hoare.While; auto.
+    + intros E0 He P.
+      apply IHc; auto.
+      * intros E1.
+        pose proof (VC E1).
+        unfold pred in *.
+        simpl in *.
+        do_bool.
+        rewrite implb_true_iff, andb_true_iff, negb_true_iff in *.
+        auto.
+      * pose proof (VC E0).
+        unfold pred in *.
+        simpl in *.
+        do_bool.
+        rewrite implb_true_iff, andb_true_iff, negb_true_iff in *.
+        auto.
+    + simpl.
+      intros E0 He.
+      pose proof (VC E0).
+      unfold pred in *.
+      simpl in *.
+      do_bool.
+      rewrite implb_true_iff, andb_true_iff, negb_true_iff in *.
+      intuition.
+Qed.
+
 
 Section SpaceEx.
   Context {BAS:Basic}.
@@ -389,14 +521,66 @@ Section space.
     {| full := full_ty ty;
        denoteFullOk := full_ty_ok ty |}.
 
+  Definition spec_exp {G} P c Q : exp.t G ty.Bool :=
+    exp.And (vc c Q)
+            (exp.Implies P (wp c Q)).
+
   Definition hoare_space {G} P (c : cmd.t G) Q : Space (hlist.t (ty.denote Int) G) :=
-    bind full (guard (fun env => exp.int_denote env (spec_exp P c Q))).
+    bind full (guard (fun env => negb (exp.int_denote env (spec_exp P c Q)))).
+
+  Require Import Classical.
 
   Theorem hoare_space_sound :
     forall G P (c : cmd.t G) Q,
-      denote (hoare_space P c Q) = Empty_set _ ->
-      hoare.t P c Q.
-  Admitted.
+      (forall E, E ∈ ⟦ hoare_space P c Q ⟧ -> False) ->
+      (forall E, pred P E -> hoare.t E c (pred Q)).
+  Proof.
+    unfold hoare_space.
+    intros G P c Q H.
+    assert (forall E, exp.int_denote E (vc c Q) = true /\
+                 exp.int_denote E (exp.Implies P (wp c Q)) = true).
+    { intros E.
+      specialize (H E).
+      space_crush.
+      simpl in H.
+
+      pose proof (not_ex_all_not _ _ H). clear H. rename H0 into H.
+      specialize (H E).
+      simpl in H.
+      space_crush.
+      apply not_and_or in H.
+      destruct H.
+      - contradiction H. constructor.
+      - break_if.
+        + do_bool. contradiction H. constructor.
+        + rewrite negb_false_iff in Heqb.
+          do_bool.
+          auto.
+    }
+    clear H. rename H0 into H.
+    intros E HP.
+    set (E' := hlist.map (fun _ x => ty.denote_map fromZ x) E).
+    destruct (H E') as [VC WP].
+
+    apply vc_wp_sound.
+    - intros E0.
+      set (E0' := hlist.map (fun _ x => ty.denote_map fromZ x) E0).
+      destruct (H E0') as [VC0 WP0].
+      unfold pred.
+      subst E0'.
+      unfold exp.int_denote in VC0.
+      unfold exp.Z_denote.
+      rewrite exp.denote_ty_denote_map with (o2 := @op.Z_denote) in VC0.
+      auto.
+    - subst E'.
+      unfold exp.int_denote in WP.
+      unfold exp.Z_denote.
+      rewrite exp.denote_ty_denote_map with (o2 := @op.Z_denote) in WP.
+      auto.
+      simpl in WP.
+      rewrite implb_true_iff in *.
+      intuition.
+  Qed.
 
   (* Not sure about completeness. *)
 End space.
