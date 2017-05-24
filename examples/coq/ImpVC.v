@@ -26,8 +26,6 @@ Set Maximal Implicit Insertion.
 *)
 
 (* TODO:
-   - cleanup vc_wp_sound
-   - extract and try it!
    - integrate with street fighting Imp material
 *)
 
@@ -116,11 +114,11 @@ Module hlist.
     end.
   Arguments set {A B l} {x} m y h.
 
-  Definition map A {B C : A -> Type} (f : forall {a}, B a -> C a) : forall l, t B l -> t C l :=
-    fix go {l} (h : t B l) : t C l :=
+  Definition map A {B C : A -> Type} (f : forall a, B a -> C a) : forall l, t B l -> t C l :=
+    fix go l (h : t B l) : t C l :=
       match h with
       | nil => nil
-      | cons b h => cons (f b) (go h)
+      | cons b h => cons (f _ b) (go _ h)
       end.
 
   Lemma get_map : forall A (B C : A -> Type) (f : forall a, B a -> C a) l x (m: member.t x l) h,
