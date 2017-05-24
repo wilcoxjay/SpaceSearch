@@ -184,6 +184,7 @@ Module op.
   | Plus : t [ty.Int; ty.Int] ty.Int
   | Eq : forall ty, t [ty; ty] ty.Bool
   | Le : t [ty.Int; ty.Int] ty.Bool
+  | Lt : t [ty.Int; ty.Int] ty.Bool
   | And : t [ty.Bool; ty.Bool] ty.Bool
   | Or : t [ty.Bool; ty.Bool] ty.Bool
   | Implies : t [ty.Bool; ty.Bool] ty.Bool
@@ -201,6 +202,7 @@ Module op.
       | ty.Bool => fun h => Bool.eqb (hlist.head h) (hlist.head (hlist.tail h))
       end
     | Le => fun h => Z.leb (hlist.head h) (hlist.head (hlist.tail h))
+    | Lt => fun h => Z.ltb (hlist.head h) (hlist.head (hlist.tail h))
     | And => fun h => andb (hlist.head h) (hlist.head (hlist.tail h))
     | Or => fun h => orb (hlist.head h) (hlist.head (hlist.tail h))
     | Implies => fun h => implb (hlist.head h) (hlist.head (hlist.tail h))
@@ -222,6 +224,7 @@ Module op.
         | ty.Bool => fun h => Bool.eqb (hlist.head h) (hlist.head (hlist.tail h))
         end
       | Le => fun h => Integer.le (hlist.head h) (hlist.head (hlist.tail h))
+      | Lt => fun h => Integer.lt (hlist.head h) (hlist.head (hlist.tail h))
       | And => fun h => andb (hlist.head h) (hlist.head (hlist.tail h))
       | Or => fun h => orb (hlist.head h) (hlist.head (hlist.tail h))
       | Implies => fun h => implb (hlist.head h) (hlist.head (hlist.tail h))
@@ -290,6 +293,7 @@ Module exp.
   Definition Plus {G} : _ -> _ -> t G _ := lift2 op.Plus.
   Definition Eq {G ty} : _ -> _ -> t G _ := lift2 (op.Eq ty).
   Definition Le {G} : _ -> _ -> t G _ := lift2 op.Le.
+  Definition Lt {G} : _ -> _ -> t G _ := lift2 op.Lt.
   Definition And {G} : _ -> _ -> t G _ := lift2 op.And.
   Definition Or {G} : _ -> _ -> t G _ := lift2 op.Or.
   Definition Implies {G} : _ -> _ -> t G _ := lift2 op.Implies.
@@ -401,6 +405,7 @@ Module exp.
                end; simpl; auto.
       - apply denoteInjective. space_crush.
       - destruct ty0; simpl; space_crush.
+      - space_crush.
       - space_crush.
     Qed.
 
