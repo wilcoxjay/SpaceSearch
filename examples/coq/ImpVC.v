@@ -25,7 +25,7 @@ Set Maximal Implicit Insertion.
 *)
 
 (* TODO:
-   - prove hoare.While by switching to big-step semantics.
+   - cleanup soundness proof
    - extract and try it!
    - integrate with street fighting Imp material
 *)
@@ -406,72 +406,36 @@ Module cmd.
   Arguments Skip {_}.
 End cmd.
 
-Module step.
+Module eval.
   Notation env G := (hlist.t (ty.denote Z) G).
 
-  Inductive t {G} : env G -> cmd.t G -> env G -> cmd.t G -> Prop :=
-  | Assign : forall ty E m e, t E (cmd.Assign(ty:=ty) m e)
-                           (hlist.set m (exp.Z_denote E e) E) cmd.Skip
-  | Seq : forall E E' c1 c1' c2,
-      t E c1 E' c1' ->
-      t E (cmd.Seq c1 c2) E' (cmd.Seq c1' c2)
-  | SeqSkip : forall E c,
-      t E (cmd.Seq cmd.Skip c) E c
-  | If : forall E e c1 c2,
-      t E (cmd.If e c1 c2) E (if exp.Z_denote E e then c1 else c2)
-  | While : forall E e Inv c,
-      t E (cmd.While e Inv c) E (if exp.Z_denote E e then cmd.Skip
-                                 else cmd.Seq c (cmd.While e Inv c))
+  Inductive t {G} : env G -> cmd.t G -> env G -> Prop :=
+  | Skip : forall E, t E cmd.Skip E
+  | Assign : forall ty E m e, t E (cmd.Assign(ty:=ty) m e) (hlist.set m (exp.Z_denote E e) E)
+  | Seq : forall E0 E1 E2 c1 c2,
+      t E0 c1 E1 ->
+      t E1 c2 E2 ->
+      t E0 (cmd.Seq c1 c2) E2
+  | If : forall E E' e c1 c2,
+      t E (if exp.Z_denote(ty:=ty.Bool) E e then c1 else c2) E' ->
+      t E (cmd.If e c1 c2) E'
+  | WhileTrue : forall E1 E2 E3 e Inv c,
+      exp.Z_denote(ty:=ty.Bool) E1 e = true ->
+      t E1 c E2 ->
+      t E2 (cmd.While e Inv c) E3 ->
+      t E1 (cmd.While e Inv c) E3
+  | WhileFalse : forall E e Inv c,
+      exp.Z_denote(ty:=ty.Bool) E e = false ->
+      t E (cmd.While e Inv c) E
   .
-
-  Module star.
-    Inductive t {G} : env G -> cmd.t G -> env G -> cmd.t G -> Prop :=
-    | Refl : forall E c, t E c E c
-    | Step : forall E1 c1 E2 c2 E3 c3,
-        step.t E1 c1 E2 c2 ->
-        t E2 c2 E3 c3 ->
-        t E1 c1 E3 c3
-    .
-
-    Lemma Skip :
-      forall G E E',
-        t(G:=G) E cmd.Skip E' cmd.Skip ->
-        E = E'.
-    Proof.
-      intros.
-      invc H; auto.
-      invc H0.
-    Qed.
-
-    Lemma seq_split :
-      forall G E c1 c2 E',
-        step.star.t(G:=G) E (cmd.Seq c1 c2) E' cmd.Skip ->
-        exists E0,
-          step.star.t E c1 E0 cmd.Skip /\
-          step.star.t E0 c2 E' cmd.Skip.
-    Proof.
-      intros.
-      remember cmd.Skip as c' in H.
-      remember (cmd.Seq c1 c2) as c.
-      revert c1 c2 Heqc Heqc'.
-      induction H; intros; subst.
-      - discriminate.
-      - invc H.
-        + specialize (IHt _ _ eq_refl eq_refl).
-          destruct IHt as (E0 & H1 & H2).
-          exists E0. split; auto.
-          econstructor; eauto.
-        + exists E2. split; auto; constructor; auto.
-    Qed.
-  End star.
-End step.
+End eval.
 
 Definition pred {G} (P : exp.t G ty.Bool) := (fun E => exp.Z_denote E P = true).
 
 Module hoare.
   Definition t {G} (E : hlist.t (ty.denote Z) G) (c : cmd.t G) (Q : hlist.t (ty.denote Z) G -> Prop) : Prop :=
     forall E',
-      step.star.t E c E' cmd.Skip ->
+      eval.t E c E' ->
       Q E'.
 
   Lemma consequence : forall G E (Q Q' : _ -> Prop) c,
@@ -488,8 +452,8 @@ Module hoare.
   Proof.
     unfold hoare.t.
     intros.
-    apply step.star.Skip in H0.
-    subst. auto.
+    invc H0.
+    auto.
   Qed.
 
   Lemma Assign :
@@ -499,9 +463,8 @@ Module hoare.
   Proof.
     unfold hoare.t.
     intros.
-    invc H0.
-    dependent destruction H1.
-    apply step.star.Skip in H2. subst. auto.
+    dependent destruction H0.
+    auto.
   Qed.
 
   Lemma Seq : forall G (E : hlist.t (ty.denote Z) G) c1 c2 Q,
@@ -510,8 +473,7 @@ Module hoare.
   Proof.
     unfold hoare.t.
     intros.
-    apply step.star.seq_split in H0.
-    destruct H0 as (E0 & Star1 & Star2).
+    invc H0.
     eauto.
   Qed.
 
@@ -522,7 +484,6 @@ Module hoare.
     unfold hoare.t.
     intros.
     invc H0.
-    invc H1.
     break_if; auto.
   Qed.
 
@@ -530,7 +491,17 @@ Module hoare.
       pred Inv E ->
       (forall E0, pred e E0 -> pred Inv E0 -> hoare.t E0 c (pred Inv)) ->
       hoare.t(G:=G) E (cmd.While e Inv c) (fun E => pred (exp.Not e) E /\ pred Inv E).
-  Admitted.
+  Proof.
+    unfold hoare.t.
+    intros.
+    remember (cmd.While e Inv c) as x.
+    revert e Inv c Heqx H H0.
+    induction H1; intros; subst; try discriminate.
+    - invc Heqx.
+      eauto.
+    - invc Heqx.
+      unfold pred. simpl. do_bool. auto.
+  Qed.
 End hoare.
 
 (* See https://courses.cs.washington.edu/courses/cse507/17wi/lectures/vcg.rkt *)
