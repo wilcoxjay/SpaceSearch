@@ -369,6 +369,16 @@ Module exp.
   Definition Z_denote {G ty} (env : hlist.t (ty.denote Z) G) (e : t G ty) : ty.denote Z ty :=
     denote env (@op.Z_denote) e.
 
+  Lemma Z_denote_subst_set :
+    forall G (env : hlist.t (ty.denote Z) G) ty
+      (e : exp.t G ty) ty' (from : member.t ty' G) to,
+      Z_denote env (exp.subst e from to) =
+      Z_denote (hlist.set from (Z_denote env to) env) e.
+  Proof.
+    intros.
+    apply denote_subst_set.
+  Qed.
+
   Section int.
     Context {BAS:Basic}.
     Context {INT:@Integer BAS}.
@@ -500,7 +510,7 @@ Module hoare.
 
   Lemma While : forall G E e (Inv : exp.t G ty.Bool) c,
       pred Inv E ->
-      (forall E0, pred e E0 -> pred Inv E0 -> hoare.t E0 c (pred Inv)) ->
+      (forall E0, pred e E0 /\ pred Inv E0 -> hoare.t E0 c (pred Inv)) ->
       hoare.t(G:=G) E (cmd.While e Inv c) (fun E => pred (exp.Not e) E /\ pred Inv E).
   Proof.
     unfold hoare.t.
@@ -538,64 +548,66 @@ Fixpoint vc {G} (c : cmd.t G) (Q : exp.t G ty.Bool) : exp.t G ty.Bool :=
             (exp.Implies (exp.And Inv (exp.Not b)) Q))
   end.
 
+Lemma pred_and_iff :
+  forall G (P Q : exp.t G ty.Bool) E,
+    pred (exp.And P Q) E <->
+    pred P E /\ pred Q E.
+Proof.
+  intros.
+  unfold pred in *.
+  simpl in *. do_bool. intuition.
+Qed.
+
+Lemma pred_implies_iff :
+  forall G (P Q : exp.t G ty.Bool) E,
+    pred (exp.Implies P Q) E <->
+    (pred P E -> pred Q E).
+Proof.
+  intros.
+  unfold pred in *.
+  simpl in *. do_bool. intuition.
+Qed.
+
+
 Lemma vc_wp_sound :
   forall G (c : cmd.t G)E (Q : exp.t G ty.Bool),
     (forall E, pred (vc c Q) E) ->
     exp.Z_denote E (wp c Q) = true ->
     hoare.t E c (pred Q).
 Proof.
-  induction c; simpl; intros E Q VC WP.
+  induction c; simpl; intros E Q VC WP;
+    repeat first [setoid_rewrite @pred_and_iff in VC|
+                  setoid_rewrite @pred_implies_iff in VC].
   - apply hoare.Skip.
     auto.
   - apply hoare.Assign.
-    unfold pred, exp.Z_denote in *.
-    simpl in *.
-    rewrite <- exp.denote_subst_set.
+    rewrite @exp.Z_denote_subst_set in *.
     auto.
   - apply hoare.Seq.
     eapply hoare.consequence.
-    apply IHc1; eauto.
-    + intros E0.
-      specialize (VC E0).
-      unfold pred in *.
-      simpl in *. do_bool. intuition.
+    + apply IHc1; eauto.
+      apply VC.
     + intros E0 WP2.
       apply IHc2; auto.
-      intros E1.
-      specialize (VC E1).
-      unfold pred in *.
-      simpl in *. do_bool. intuition.
-  - do_bool.
+      apply VC.
+  - apply hoare.If.
+    do_bool.
     intuition.
-    apply hoare.If.
     break_if.
     + apply IHc1; auto.
-      intros E0. specialize (VC E0). unfold pred in *. simpl in VC.
-      do_bool. intuition.
+      apply VC.
     + apply IHc2; auto.
-      intros E0. specialize (VC E0). unfold pred in *. simpl in VC.
-      do_bool. intuition.
+      apply VC.
   - eapply hoare.consequence.
-    apply hoare.While; auto.
-    + intros E0 He P.
+    + apply hoare.While; auto.
+      intros E0 He P.
       apply IHc; auto.
-      * intros E1.
-        pose proof (VC E1).
-        unfold pred in *.
-        simpl in *.
-        do_bool.
-        intuition.
-      * pose proof (VC E0).
-        unfold pred in *.
-        simpl in *.
-        do_bool.
+      * apply VC.
+      * apply VC.
         intuition.
     + simpl.
       intros E0 He.
-      pose proof (VC E0).
-      unfold pred in *.
-      simpl in *.
-      do_bool.
+      apply VC.
       intuition.
 Qed.
 
